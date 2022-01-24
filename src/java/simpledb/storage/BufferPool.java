@@ -4,12 +4,14 @@ import simpledb.common.Database;
 import simpledb.common.Permissions;
 import simpledb.common.DbException;
 import simpledb.common.DeadlockException;
+import simpledb.transaction.Transaction;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.*;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -27,6 +29,9 @@ public class BufferPool {
     private static final int DEFAULT_PAGE_SIZE = 4096;
 
     private static int pageSize = DEFAULT_PAGE_SIZE;
+
+    private final Page[] buffer;
+
     
     /** Default number of pages passed to the constructor. This is used by
     other classes. BufferPool should use the numPages argument to the
@@ -40,6 +45,7 @@ public class BufferPool {
      */
     public BufferPool(int numPages) {
         // some code goes here
+        buffer = new Page[numPages];
     }
     
     public static int getPageSize() {
@@ -61,20 +67,36 @@ public class BufferPool {
      * Will acquire a lock and may block if that lock is held by another
      * transaction.
      * <p>
-     * The retrieved page should be looked up in the buffer pool.  If it
-     * is present, it should be returned.  If it is not present, it should
-     * be added to the buffer pool and returned.  If there is insufficient
-     * space in the buffer pool, a page should be evicted and the new page
+     * The retrieved page should be looked up in the buffer pool.
+     * If it is present, it should be returned.
+     * If it is not present, it should be added to the buffer pool and returned.
+     * If there is insufficient space in the buffer pool, a page should be evicted and the new page
      * should be added in its place.
      *
      * @param tid the ID of the transaction requesting the page
      * @param pid the ID of the requested page
      * @param perm the requested permissions on the page
      */
-    public  Page getPage(TransactionId tid, PageId pid, Permissions perm)
+    public Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
         // some code goes here
-        return null;
+        // 遍历buffer，查看哪个是空的
+        int idx = -1;
+        for(int i = 0; i < buffer.length; i++) {
+            if(buffer[i] == null) {
+                idx = i;  // 如果缓冲池不存在
+            } else if(pid.equals(buffer[i].getId())) {
+                return buffer[i];
+            }
+        }
+
+        // 满了 并且不存在
+        if(idx == -1) {
+            evictPage(); // LRU
+            return getPage(tid, pid, perm); //再找一次
+        }
+
+        throw new TransactionAbortedException();
     }
 
     /**
