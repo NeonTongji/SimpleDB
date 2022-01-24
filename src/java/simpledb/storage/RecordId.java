@@ -55,7 +55,7 @@ public class RecordId implements Serializable {
         // some code goes here
         if(!(o instanceof RecordId)) {
             return false;
-        } else if(this.tupleNo != ((RecordId) o).tupleNo || this.pid != ((RecordId) o).pid) {
+        } else if(this.tupleNo != ((RecordId) o).tupleNo || (!this.pid.equals(((RecordId) o).pid))) {
             return false;
         }
         return true;

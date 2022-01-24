@@ -292,8 +292,8 @@ public class HeapPage implements Page {
     public int getNumEmptySlots() {
         // some code goes here
         int num = 0;
-        for(int code : header) {
-            if(code == 0) num++;
+        for(int i = 0; i < numSlots; i++) {
+            if(!isSlotUsed(i)) num++;
         }
         return num;
     }
@@ -303,7 +303,13 @@ public class HeapPage implements Page {
      */
     public boolean isSlotUsed(int i) {
         // some code goes here
-        return header[i] == 1;
+        // 若不为8的倍数的槽是满的，18个slots, 则 byte[] header 为[11111111, 11111111, 00000011]
+        // 按照文档说明。每个字节的最低位代表第一个槽的状态
+        int byteNum = i / 8; // 计算在第几个字节
+        int bitNum = i % 8; // 计算为从右往左第几个比特，即第几高位
+//        return (header[byteNum] & (1 << bitNum)) == 1; // 注意 不是等于1，可能等于1 2 4 8等等 如 11和 10与
+        return (header[byteNum] & (1 << bitNum)) > 0;
+//        return 0 != (header[i >> 3] & (1 << (i & 7)));
     }
 
     /**
@@ -321,26 +327,21 @@ public class HeapPage implements Page {
     public Iterator<Tuple> iterator() {
         // some code goes here
         return new Iterator<Tuple>() {
-            private int idx = -1;
+            private int idx = 0;
+            private int cntUsed = 0;
+            private int used = getNumTuples() - getNumEmptySlots();
+
             @Override
             public boolean hasNext() {
-                return idx + 1 < tuples.length;
+                return idx  < getNumTuples() && cntUsed < used;
             }
 
             @Override
             public Tuple next() {
-
-                idx++;
-
-                while(hasNext() && header[idx] == 0) {
-                     idx++;
-                }
-
-                if(hasNext()) {
-                    return tuples[idx];
-                }
-
-                return null;
+                if(!hasNext()) throw new NoSuchElementException("迭代越界");
+                while(!isSlotUsed(idx)) idx++;
+                cntUsed++;
+                return tuples[idx++];
             }
 
             @Override
