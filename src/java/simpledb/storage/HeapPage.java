@@ -73,7 +73,8 @@ public class HeapPage implements Page {
     */
     private int getNumTuples() {        
         // some code goes here
-        return 0;
+
+        return (BufferPool.getPageSize() * 8) / (td.getSize() * 8 + 1);
 
     }
 
@@ -84,7 +85,7 @@ public class HeapPage implements Page {
     private int getHeaderSize() {        
         
         // some code goes here
-        return 0;
+        return (int) Math.ceil(getNumTuples() / 8.0);
                  
     }
     
@@ -118,7 +119,8 @@ public class HeapPage implements Page {
      */
     public HeapPageId getId() {
     // some code goes here
-    throw new UnsupportedOperationException("implement this");
+    // throw new UnsupportedOperationException("implement this");
+        return pid;
     }
 
     /**
@@ -127,6 +129,7 @@ public class HeapPage implements Page {
     private Tuple readNextTuple(DataInputStream dis, int slotId) throws NoSuchElementException {
         // if associated bit is not set, read forward to the next tuple, and
         // return null.
+        // 如果slotId对应的槽为空
         if (!isSlotUsed(slotId)) {
             for (int i=0; i<td.getSize(); i++) {
                 try {
@@ -288,7 +291,11 @@ public class HeapPage implements Page {
      */
     public int getNumEmptySlots() {
         // some code goes here
-        return 0;
+        int num = 0;
+        for(int code : header) {
+            if(code == 0) num++;
+        }
+        return num;
     }
 
     /**
@@ -296,7 +303,7 @@ public class HeapPage implements Page {
      */
     public boolean isSlotUsed(int i) {
         // some code goes here
-        return false;
+        return header[i] == 1;
     }
 
     /**
@@ -313,7 +320,34 @@ public class HeapPage implements Page {
      */
     public Iterator<Tuple> iterator() {
         // some code goes here
-        return null;
+        return new Iterator<Tuple>() {
+            private int idx = -1;
+            @Override
+            public boolean hasNext() {
+                return idx + 1 < tuples.length;
+            }
+
+            @Override
+            public Tuple next() {
+
+                idx++;
+
+                while(hasNext() && header[idx] == 0) {
+                     idx++;
+                }
+
+                if(hasNext()) {
+                    return tuples[idx];
+                }
+
+                return null;
+            }
+
+            @Override
+            public void remove() {
+                throw new UnsupportedOperationException("tuple不允许删除");
+            }
+        };
     }
 
 }
