@@ -208,6 +208,7 @@ public class HeapFile implements DbFile {
 
         @Override
         public void close() {
+            // 关闭，则偏移回到0，并且迭代器置为null
             pagePos = 0;
             tupleIterator = null;
         }

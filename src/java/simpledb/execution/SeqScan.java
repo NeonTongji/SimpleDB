@@ -1,6 +1,7 @@
 package simpledb.execution;
 
 import simpledb.common.Database;
+import simpledb.storage.HeapFile;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 import simpledb.common.Type;
@@ -20,9 +21,15 @@ public class SeqScan implements OpIterator {
 
     private static final long serialVersionUID = 1L;
 
+    private TransactionId tid;
+    private int tableid;
+    private String tableAlias;
+    private DbFileIterator heapFileIterator;
+
     /**
      * Creates a sequential scan over the specified table as a part of the
      * specified transaction.
+     * 作为特定事务的一部分，为特定的table创建一个sequential scan
      *
      * @param tid
      *            The transaction this scan is running as a part of.
@@ -38,24 +45,32 @@ public class SeqScan implements OpIterator {
      */
     public SeqScan(TransactionId tid, int tableid, String tableAlias) {
         // some code goes here
+        this.tid = tid;
+        this.tableid = tableid;
+        this.tableAlias = tableAlias;
+        // 注意 hFIter要通过利用table id获取 dbfile获得，再理由事务id获得hF的iterator
+        heapFileIterator = Database.getCatalog().getDatabaseFile(tableid).iterator(tid);
     }
 
     /**
      * @return
      *       return the table name of the table the operator scans. This should
      *       be the actual name of the table in the catalog of the database
+     *       返回表的真实名称，是从Database的目录中获取，由唯一tableId确定
      * */
     public String getTableName() {
-        return null;
+        // done
+        return Database.getCatalog().getTableName(tableid);
     }
 
     /**
      * @return Return the alias of the table this operator scans.
+     * table的别名， 即 employee as e. e就是emloyee的别名
      * */
     public String getAlias()
     {
-        // some code goes here
-        return null;
+        // done
+        return this.tableAlias;
     }
 
     /**
@@ -72,6 +87,9 @@ public class SeqScan implements OpIterator {
      */
     public void reset(int tableid, String tableAlias) {
         // some code goes here
+        this.tableid = tableid;
+        this.tableAlias = tableAlias;
+
     }
 
     public SeqScan(TransactionId tid, int tableId) {
@@ -80,6 +98,8 @@ public class SeqScan implements OpIterator {
 
     public void open() throws DbException, TransactionAbortedException {
         // some code goes here
+        // 开启多页面的元组迭代
+        heapFileIterator.open();
     }
 
     /**
@@ -94,26 +114,54 @@ public class SeqScan implements OpIterator {
      */
     public TupleDesc getTupleDesc() {
         // some code goes here
-        return null;
+        TupleDesc tupleDesc = Database.getCatalog().getTupleDesc(tableid);
+        int numFields = tupleDesc.numFields();
+        Type[] type = new Type[numFields];
+        String[] names = new String[numFields];
+
+        /**
+         * Reset the tableid, and tableAlias of this operator.
+         * @param tableid
+         *            the table to scan.
+         * @param tableAlias
+         *            the alias of this table (needed by the parser); the returned
+         *            tupleDesc should have fields with name tableAlias.fieldName
+         *            (note: this class is not responsible for handling a case where
+         *            tableAlias or fieldName are null. It shouldn't crash if they
+         *            are, but the resulting name can be null.fieldName,
+         *            tableAlias.null, or null.null).
+         */
+
+        for(int i = 0; i < numFields; i++) {
+            type[i] = tupleDesc.getFieldType(i);
+            // 构造成 alias.field形式，如 e.salary; 如果alias和field都为null,则用"null"代替
+            String alias = getAlias() == null ? "null" : getAlias();
+            String fieldName = tupleDesc.getFieldName(i) == null ? "null" : tupleDesc.getFieldName(i);
+            names[i] = alias + "." + fieldName;
+        }
+
+        return new TupleDesc(type, names);
     }
 
     public boolean hasNext() throws TransactionAbortedException, DbException {
         // some code goes here
-        return false;
+        return heapFileIterator.hasNext();
     }
 
     public Tuple next() throws NoSuchElementException,
             TransactionAbortedException, DbException {
         // some code goes here
-        return null;
+        return heapFileIterator.next();
     }
 
     public void close() {
         // some code goes here
+        heapFileIterator.close();
     }
 
     public void rewind() throws DbException, NoSuchElementException,
             TransactionAbortedException {
         // some code goes here
+        heapFileIterator.rewind();
     }
 }
