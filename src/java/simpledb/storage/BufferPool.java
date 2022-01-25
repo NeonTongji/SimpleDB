@@ -10,6 +10,7 @@ import simpledb.transaction.TransactionId;
 
 import java.io.*;
 
+import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
 
@@ -30,8 +31,12 @@ public class BufferPool {
 
     private static int pageSize = DEFAULT_PAGE_SIZE;
 
-    private final Page[] buffer;
 
+//    private final Page[] buffer;
+
+    private HashMap<PageId, Page> pid2pages;
+
+    private int PAGES_NUM;
     
     /** Default number of pages passed to the constructor. This is used by
     other classes. BufferPool should use the numPages argument to the
@@ -45,7 +50,9 @@ public class BufferPool {
      */
     public BufferPool(int numPages) {
         // some code goes here
-        buffer = new Page[numPages];
+//        buffer = new Page[numPages];
+        PAGES_NUM = numPages;
+        pid2pages = new HashMap<>(numPages);
     }
     
     public static int getPageSize() {
@@ -81,22 +88,17 @@ public class BufferPool {
         throws TransactionAbortedException, DbException {
         // some code goes here
         // 遍历buffer，查看哪个是空的
-        int idx = -1;
-        for(int i = 0; i < buffer.length; i++) {
-            if(buffer[i] == null) {
-                idx = i;  // 如果缓冲池不存在
-            } else if(pid.equals(buffer[i].getId())) {
-                return buffer[i];
-            }
-        }
+        if(pid2pages.containsKey(pid)) return pid2pages.get(pid);
 
-        // 满了 并且不存在
-        if(idx == -1) {
-            evictPage(); // LRU
-            return getPage(tid, pid, perm); //再找一次
+        if(pid2pages.size() == PAGES_NUM) {
+            evictPage();
         }
+        // 从数据库\目录 创建数据表文件
+        DbFile databaseFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+        HeapPage page = (HeapPage) databaseFile.readPage(pid);
+        pid2pages.put(pid,page);
+        return page;
 
-        throw new TransactionAbortedException();
     }
 
     /**
