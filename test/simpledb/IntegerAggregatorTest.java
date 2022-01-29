@@ -13,6 +13,7 @@ import simpledb.common.Type;
 import simpledb.execution.Aggregator;
 import simpledb.execution.IntegerAggregator;
 import simpledb.execution.OpIterator;
+import simpledb.storage.TupleDesc;
 import simpledb.systemtest.SimpleDbTestBase;
 
 public class IntegerAggregatorTest extends SimpleDbTestBase {
@@ -67,13 +68,33 @@ public class IntegerAggregatorTest extends SimpleDbTestBase {
     };
   }
 
+  private TupleDesc getTupleDesc(TupleDesc child_td,int agIndex,int gbIndex,Type gbFieldType) {
+    Type[] types;
+    String[] names;
+    String aggName = child_td.getFieldName(agIndex);
+    if (gbIndex == Aggregator.NO_GROUPING) {
+      types = new Type[]{Type.INT_TYPE};
+      names = new String[]{aggName};
+    } else {
+      try {
+        Thread.sleep(1);
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+      types = new Type[]{gbFieldType, Type.INT_TYPE};
+      names = new String[]{child_td.getFieldName(gbIndex), aggName};
+    }
+    return new TupleDesc(types, names);
+  }
+
+
   /**
    * Test IntegerAggregator.mergeTupleIntoGroup() and iterator() over a sum
    */
   @Test public void mergeSum() throws Exception {
     scan1.open();
-    IntegerAggregator agg = new IntegerAggregator(0, Type.INT_TYPE, 1, Aggregator.Op.SUM);
-    
+    IntegerAggregator agg = new IntegerAggregator(0, Type.INT_TYPE, 1, Aggregator.Op.SUM,getTupleDesc(scan1.getTupleDesc(),1,0,Type.INT_TYPE));
+
     for (int[] step : sum) {
       agg.mergeTupleIntoGroup(scan1.next());
       OpIterator it = agg.iterator();
@@ -87,7 +108,7 @@ public class IntegerAggregatorTest extends SimpleDbTestBase {
    */
   @Test public void mergeMin() throws Exception {
     scan1.open();
-    IntegerAggregator agg = new IntegerAggregator(0,Type.INT_TYPE,  1, Aggregator.Op.MIN);
+    IntegerAggregator agg = new IntegerAggregator(0,Type.INT_TYPE,  1, Aggregator.Op.MIN,getTupleDesc(scan1.getTupleDesc(),1,0,Type.INT_TYPE));
 
     OpIterator it;
     for (int[] step : min) {
@@ -103,7 +124,7 @@ public class IntegerAggregatorTest extends SimpleDbTestBase {
    */
   @Test public void mergeMax() throws Exception {
     scan1.open();
-    IntegerAggregator agg = new IntegerAggregator(0, Type.INT_TYPE, 1, Aggregator.Op.MAX);
+    IntegerAggregator agg = new IntegerAggregator(0, Type.INT_TYPE, 1, Aggregator.Op.MAX,getTupleDesc(scan1.getTupleDesc(),1,0,Type.INT_TYPE));
 
     OpIterator it;
     for (int[] step : max) {
@@ -119,7 +140,7 @@ public class IntegerAggregatorTest extends SimpleDbTestBase {
    */
   @Test public void mergeAvg() throws Exception {
     scan1.open();
-    IntegerAggregator agg = new IntegerAggregator(0, Type.INT_TYPE, 1, Aggregator.Op.AVG);
+    IntegerAggregator agg = new IntegerAggregator(0, Type.INT_TYPE, 1, Aggregator.Op.AVG,getTupleDesc(scan1.getTupleDesc(),1,0,Type.INT_TYPE));
 
     OpIterator it;
     for (int[] step : avg) {
@@ -136,7 +157,7 @@ public class IntegerAggregatorTest extends SimpleDbTestBase {
   @Test public void testIterator() throws Exception {
     // first, populate the aggregator via sum over scan1
     scan1.open();
-    IntegerAggregator agg = new IntegerAggregator(0, Type.INT_TYPE, 1, Aggregator.Op.SUM);
+    IntegerAggregator agg = new IntegerAggregator(0, Type.INT_TYPE, 1, Aggregator.Op.SUM,getTupleDesc(scan1.getTupleDesc(),1,0,Type.INT_TYPE));
     try {
       while (true)
         agg.mergeTupleIntoGroup(scan1.next());

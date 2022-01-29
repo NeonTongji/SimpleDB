@@ -1,7 +1,11 @@
 package simpledb.execution;
 
 import simpledb.common.Type;
-import simpledb.storage.Tuple;
+import simpledb.storage.*;
+
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.Map;
 
 /**
  * Knows how to compute some aggregate over a set of StringFields.
@@ -19,8 +23,24 @@ public class StringAggregator implements Aggregator {
      * @throws IllegalArgumentException if what != COUNT
      */
 
-    public StringAggregator(int gbfield, Type gbfieldtype, int afield, Op what) {
+    private int gbIdx;
+    private Type gbFieldType;
+    private int agIdx;
+    private Op agOp;
+    private TupleDesc td;
+    HashMap<Field, Integer> agCache;
+
+    public StringAggregator(int gbfield, Type gbfieldtype, int afield, Op agOp, TupleDesc td) {
         // some code goes here
+        if(agOp != Op.COUNT) {
+            throw new UnsupportedOperationException("String聚合只支持count, 不支持" + agOp);
+        }
+        this.gbIdx = gbfield;
+        this.gbFieldType = gbfieldtype;
+        this.agIdx = afield;
+        this.agOp = agOp;
+        this.td = td;
+        agCache = new HashMap<>();
     }
 
     /**
@@ -29,6 +49,30 @@ public class StringAggregator implements Aggregator {
      */
     public void mergeTupleIntoGroup(Tuple tup) {
         // some code goes here
+        // corner cases
+        Field agField = tup.getField(agIdx);
+
+        if(agField.getType() != Type.STRING_TYPE) {
+            throw new IllegalArgumentException("聚合类型应为字符串");
+        }
+
+        Field gbField;
+        if(gbIdx == Aggregator.NO_GROUPING) {
+            gbField = null;
+        } else {
+            gbField = tup.getField(gbIdx);
+        }
+
+        String toAggregate = ((StringField) tup.getField(agIdx)).getValue();
+        // String只有count
+
+        if(agCache.containsKey(gbField)) {
+            int oldVal  = agCache.get(gbField);
+            agCache.put(gbField, oldVal + 1);
+        } else {
+            agCache.put(gbField, 1);
+        }
+
     }
 
     /**
@@ -41,7 +85,19 @@ public class StringAggregator implements Aggregator {
      */
     public OpIterator iterator() {
         // some code goes here
-        throw new UnsupportedOperationException("please implement me for lab2");
+        LinkedList<Tuple> tuples = new LinkedList<>();
+        for(Map.Entry<Field, Integer> ag : agCache.entrySet()) {
+            Tuple tuple = new Tuple(td);
+            if(gbIdx == Aggregator.NO_GROUPING) {
+                tuple.setField(0, new IntField(ag.getValue()));
+            } else {
+                tuple.setField(0, ag.getKey());
+                tuple.setField(1,  new IntField(ag.getValue()));
+            }
+            tuples.add(tuple);
+        }
+
+        return new TupleIterator(td, tuples);
     }
 
 }
