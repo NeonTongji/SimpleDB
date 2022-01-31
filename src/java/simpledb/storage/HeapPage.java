@@ -24,6 +24,7 @@ public class HeapPage implements Page {
     final byte[] header;
     final Tuple[] tuples;
     final int numSlots;
+    private TransactionId lastDirtyOperation;
 
     byte[] oldData;
     private final Byte oldDataLock= (byte) 0;
@@ -119,7 +120,6 @@ public class HeapPage implements Page {
      */
     public HeapPageId getId() {
     // some code goes here
-    // throw new UnsupportedOperationException("implement this");
         return pid;
     }
 
@@ -254,6 +254,15 @@ public class HeapPage implements Page {
     public void deleteTuple(Tuple t) throws DbException {
         // some code goes here
         // not necessary for lab1
+        // 根据元组的recordId可以获得其所在页的id，元组的编号
+        RecordId tRecordId = t.getRecordId();
+        HeapPageId tPid = (HeapPageId) tRecordId.getPageId();
+        int tNo = tRecordId.getTupleNumber();
+        if(!tPid.equals(pid) || !isSlotUsed(tNo)) {
+            throw new DbException("要删除的元组本来就为空");
+        }
+        tuples[tNo] = null;
+        markSlotUsed(tNo, false);
     }
 
     /**
@@ -266,6 +275,22 @@ public class HeapPage implements Page {
     public void insertTuple(Tuple t) throws DbException {
         // some code goes here
         // not necessary for lab1
+
+        if(!t.getTupleDesc().equals(td)) {
+            throw new DbException("TD匹配不上");
+        }
+
+
+        for(int i = 0; i < getNumTuples(); i++) {
+            if(!isSlotUsed(i)) {
+                tuples[i] = t;
+                // 重要：每个tuple都有一个recordId, 记得新增了要给他一个身份证
+                t.setRecordId(new RecordId(pid, i));
+                markSlotUsed(i, true);
+                return;
+            }
+        }
+        throw new DbException("这个Page满了");
     }
 
     /**
@@ -275,6 +300,7 @@ public class HeapPage implements Page {
     public void markDirty(boolean dirty, TransactionId tid) {
         // some code goes here
 	// not necessary for lab1
+        lastDirtyOperation = dirty ? tid : null;
     }
 
     /**
@@ -283,7 +309,7 @@ public class HeapPage implements Page {
     public TransactionId isDirty() {
         // some code goes here
 	// Not necessary for lab1
-        return null;      
+        return lastDirtyOperation;
     }
 
     /**
@@ -313,11 +339,37 @@ public class HeapPage implements Page {
     }
 
     /**
+     * 将某个slot的值改为1或0
      * Abstraction to fill or clear a slot on this page.
      */
     private void markSlotUsed(int i, boolean value) {
         // some code goes here
         // not necessary for lab1
+        int byteNum = i / 8;//计算在第几个字节
+        int posInByte = i % 8;//计算在该字节的第几位,从右往左算（这是因为JVM用big-ending）
+        header[byteNum] = editBitInByte(header[byteNum], posInByte, value);
+    }
+
+    /**
+     * 修改一个byte的指定位置的bit
+     * @param target    待修改的byte
+     * @param posInByte bit的位置在target的偏移量，从右往左且从0开始算，取值范围为0到7
+     * @param value     为true修改该bit为1,为false时修改为0
+     * @return 修改后的byte
+     */
+    private byte editBitInByte(byte target, int posInByte, boolean value) {
+        if (posInByte < 0 || posInByte > 7) {
+            throw new IllegalArgumentException();
+        }
+        byte b = (byte) (1 << posInByte);//将1这个bit移到指定位置，例如pos为3,value为true，将得到00001000
+        //如果value为1,使用字节00001000以及"|"操作可以将指定位置改为1，其他位置不变
+        //如果value为0,使用字节11110111以及"&"操作可以将指定位置改为0，其他位置不变
+        // 非运算符是又得讲一下的，理解起来很容易的，就是按位取反，比如~8对吧，
+        // 那就是00001000按位取反结果是11110111.
+        // value: true, 则将 0 改为1，将 0000 0 111 | 0000 1 0000 = 0000 1111
+        // value: false, 则将 1 改为0, 将 0000 1 111 & 0000 1 0000 ？？ 这样不行
+        //                        而是 0000 1 1111 & (1111 0 1111) = 0000 0 1111
+        return value ? (byte) (target | b) : (byte) (target & ~b);
     }
 
     /**

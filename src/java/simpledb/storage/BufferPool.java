@@ -1,18 +1,17 @@
 package simpledb.storage;
 
+
 import simpledb.common.Database;
 import simpledb.common.Permissions;
 import simpledb.common.DbException;
-import simpledb.common.DeadlockException;
-import simpledb.transaction.Transaction;
+
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.*;
 
-import java.util.HashMap;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.Lock;
+import java.util.*;
+
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -30,6 +29,8 @@ public class BufferPool {
     private static final int DEFAULT_PAGE_SIZE = 4096;
 
     private static int pageSize = DEFAULT_PAGE_SIZE;
+
+    private MyLruCache<PageId, Page> LRUPagesPool;
 
 
 //    private final Page[] buffer;
@@ -53,6 +54,7 @@ public class BufferPool {
 //        buffer = new Page[numPages];
         PAGES_NUM = numPages;
         pid2pages = new HashMap<>(numPages);
+        LRUPagesPool = new MyLruCache<>(PAGES_NUM);
     }
     
     public static int getPageSize() {
@@ -163,6 +165,11 @@ public class BufferPool {
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
+        HeapFile heapFile = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
+        List<Page> pages = heapFile.insertTuple(tid, t);
+        for(Page page : pages) {
+            page.markDirty(true, tid);
+        }
     }
 
     /**
@@ -182,6 +189,14 @@ public class BufferPool {
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
+        RecordId tRecordId = t.getRecordId();
+        HeapPageId tPageId = (HeapPageId) tRecordId.getPageId();
+        int tableId = tPageId.getTableId();
+        HeapFile hFile = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
+        ArrayList<Page> pages = hFile.deleteTuple(tid, t);
+        for(Page page : pages) {
+            page.markDirty(true, tid);
+        }
     }
 
     /**
@@ -192,8 +207,12 @@ public class BufferPool {
     public synchronized void flushAllPages() throws IOException {
         // some code goes here
         // not necessary for lab1
-
+        Iterator<Page> it = LRUPagesPool.iterator();
+        while (it.hasNext()) {
+            flushPage(it.next().getId());
+        }
     }
+
 
     /** Remove the specific page id from the buffer pool.
         Needed by the recovery manager to ensure that the
@@ -213,15 +232,20 @@ public class BufferPool {
      * @param pid an ID indicating the page to flush
      */
     private synchronized  void flushPage(PageId pid) throws IOException {
-        // some code goes here
-        // not necessary for lab1
+        HeapPage dirtyPage = (HeapPage) pid2pages.get(pid);
+        HeapFile table = (HeapFile) Database.getCatalog().getDatabaseFile(pid.getTableId());
+        table.writePage(dirtyPage);
+        dirtyPage.markDirty(false,null);
     }
+
+
 
     /** Write all pages of the specified transaction to disk.
      */
     public synchronized  void flushPages(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+
     }
 
     /**
