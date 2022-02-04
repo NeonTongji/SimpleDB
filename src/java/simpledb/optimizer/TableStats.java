@@ -1,11 +1,13 @@
 package simpledb.optimizer;
 
 import simpledb.common.Database;
+import simpledb.common.DbException;
 import simpledb.common.Type;
 import simpledb.execution.Predicate;
 import simpledb.execution.SeqScan;
 import simpledb.storage.*;
 import simpledb.transaction.Transaction;
+import simpledb.transaction.TransactionAbortedException;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -49,7 +51,7 @@ public class TableStats {
         return statsMap;
     }
 
-    public static void computeStatistics() {
+    public static void computeStatistics() throws TransactionAbortedException, DbException {
         Iterator<Integer> tableIt = Database.getCatalog().tableIdIterator();
 
         System.out.println("Computing table stats.");
@@ -68,6 +70,14 @@ public class TableStats {
      */
     static final int NUM_HIST_BINS = 100;
 
+    private int tableId;
+    private int ioCostPerPage;
+    private TupleDesc td;
+    private int ntups; // tups数量
+    private HeapFile table;
+    private HashMap<String, Integer[]> attrs; // key为每一列字段名，int[]{最小值，最大值}
+    private HashMap<String, Object> name2hist;
+
     /**
      * Create a new TableStats object, that keeps track of statistics on each
      * column of a table
@@ -78,7 +88,7 @@ public class TableStats {
      *            The cost per page of IO. This doesn't differentiate between
      *            sequential-scan IO and disk seeks.
      */
-    public TableStats(int tableid, int ioCostPerPage) {
+    public TableStats(int tableid, int ioCostPerPage) throws TransactionAbortedException, DbException {
         // For this function, you'll have to get the
         // DbFile for the table in question,
         // then scan through its tuples and calculate
@@ -87,6 +97,95 @@ public class TableStats {
         // necessarily have to (for example) do everything
         // in a single scan of the table.
         // some code goes here
+        this.tableId = tableid;
+        this.ioCostPerPage = ioCostPerPage;
+        this.table = (HeapFile) Database.getCatalog().getDatabaseFile(tableid);
+        this.td = table.getTupleDesc();
+        this.attrs = new HashMap<>();
+        this.name2hist = new HashMap<>();
+        Transaction t = new Transaction();
+        DbFileIterator iterator = table.iterator(t.getId());
+        process(iterator);
+    }
+
+    /**
+     * 计算table中tuple的数量，计算每个int类型的最小值和最大值，计算每个字段的histogram
+     * @param iterator
+     */
+    private void process(DbFileIterator iterator) throws TransactionAbortedException, DbException {
+        iterator.open();
+        // 统计tuple并统计字段的最值
+        findMinMax(iterator);
+
+        // 计算每一列的Histogram直方图
+        makeHistogram(iterator);
+
+    }
+
+    private void makeHistogram(DbFileIterator iterator) throws DbException, TransactionAbortedException {
+        for(Map.Entry<String, Integer[]> entry : attrs.entrySet()) {
+            Integer[] value = entry.getValue();
+            IntHistogram intHistogram = new IntHistogram(NUM_HIST_BINS, value[0], value[1]);
+            name2hist.put(entry.getKey(), intHistogram);
+        }
+
+        iterator.rewind(); // 重置迭代器，以建立直方图
+
+        while (iterator.hasNext()) {
+            Tuple tuple = iterator.next();
+
+            for(int i = 0; i < td.numFields(); i++) {
+                Type fieldType = td.getFieldType(i);
+                String fieldName = td.getFieldName(i);
+
+                // int类型由于最值已经确定，每个桶都建立好了
+                if(fieldType == Type.INT_TYPE) {
+                    int value = ((IntField) tuple.getField(i)).getValue();
+                    IntHistogram intHistogram  = (IntHistogram) name2hist.get(fieldName);
+                    intHistogram.addValue(value);
+                    name2hist.put(fieldName, intHistogram);
+                }
+
+                // String类型由于不确定分配到哪里，如果出现新值，应该新建直方图
+                else if(fieldType == Type.STRING_TYPE) {
+                    String value = ((StringField) tuple.getField(i)).getValue();
+                    if(name2hist.containsKey(fieldName)) {
+                        StringHistogram stringHistogram = (StringHistogram) name2hist.get(fieldName);
+                        stringHistogram.addValue(value);
+                        name2hist.put(fieldName, stringHistogram);
+                    } else {
+                        StringHistogram stringHistogram = new StringHistogram(NUM_HIST_BINS);
+                        stringHistogram.addValue(value);
+                        name2hist.put(fieldName,stringHistogram);
+                    }
+                }
+            }
+        }
+    }
+
+    private void findMinMax(DbFileIterator iterator) throws DbException, TransactionAbortedException {
+        while (iterator.hasNext()) {
+            ntups++; //记录tuple的数量
+            Tuple tuple = iterator.next();
+            for(int i = 0; i < td.numFields(); i++) {
+                Type fieldType = td.getFieldType(i);
+                // 只用处理int类型，因为string类型没有最大最小值
+                if(fieldType == Type.INT_TYPE) {
+                    String fieldName = td.getFieldName(i);
+                    Integer value = ((IntField) tuple.getField(i)).getValue();
+                    if(attrs.containsKey(fieldName)) {
+                        if(value < attrs.get(fieldName)[0]) {
+                            attrs.get(fieldName)[0] = value;
+                        }
+                        if(value > attrs.get(fieldName)[1]) {
+                            attrs.get(fieldName)[1] = value;
+                        }
+                    } else {
+                        attrs.put(fieldName, new Integer[]{value, value});
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -101,9 +200,10 @@ public class TableStats {
      * 
      * @return The estimated cost of scanning the table.
      */
+    //返回预估的读取table所需时间，不考虑页不完整，不考虑缓存
     public double estimateScanCost() {
         // some code goes here
-        return 0;
+        return table.numPages() * ioCostPerPage; // 多少页就多少时间
     }
 
     /**
@@ -117,7 +217,7 @@ public class TableStats {
      */
     public int estimateTableCardinality(double selectivityFactor) {
         // some code goes here
-        return 0;
+        return (int) Math.ceil(totalTuples() * selectivityFactor);
     }
 
     /**
@@ -150,7 +250,17 @@ public class TableStats {
      */
     public double estimateSelectivity(int field, Predicate.Op op, Field constant) {
         // some code goes here
-        return 1.0;
+        Type fieldType = td.getFieldType(field);
+        String fieldName = td.getFieldName(field);
+        if(fieldType == Type.INT_TYPE){
+            int value = ((IntField) constant).getValue();
+            IntHistogram intHistogram = (IntHistogram) name2hist.get(fieldName);
+            return intHistogram.estimateSelectivity(op, value);
+        } else {
+            String value = ((StringField) constant).getValue();
+            StringHistogram stringHistogram = (StringHistogram) name2hist.get(fieldName);
+            return stringHistogram.estimateSelectivity(op, value);
+        }
     }
 
     /**
@@ -158,7 +268,7 @@ public class TableStats {
      * */
     public int totalTuples() {
         // some code goes here
-        return 0;
+        return ntups;
     }
 
 }
