@@ -279,7 +279,49 @@ public class JoinOptimizer {
 
         // some code goes here
         //Replace the following
-        return joins;
+//        1. j = set of join nodes
+//        2. for (i in 1...|j|):
+//        3.     for s in {all length i subsets of j}
+//        4.       bestPlan = {}
+//        5.       for s' in {all length d-1 subsets of s}
+//        6.            subplan = optjoin(s')
+//        7.            plan = best way to join (s-s') to subplan
+//        8.            if (cost(plan) < cost(bestPlan))
+//        9.               bestPlan = plan
+//        10.      optjoin(s) = bestPlan
+//        11. return optjoin(j)
+
+        int joinNodesNum = joins.size(); //
+        PlanCache planCache = new PlanCache();
+        Set<LogicalJoinNode> wholeSet = null;
+        for(int i = 1; i <= joinNodesNum; i++) {
+            Set<Set<LogicalJoinNode>> subsets = this.enumerateSubsets(this.joins, i);
+            for (Set<LogicalJoinNode> subset : subsets) {
+                if(subset.size() == joinNodesNum) {
+                    wholeSet = subset;
+                }
+
+                Double bestCost = Double.MAX_VALUE;
+                CostCard bestPlan = new CostCard();
+
+                for(LogicalJoinNode node : subset) {
+                    CostCard plan = computeCostAndCardOfSubplan(stats, filterSelectivities, node, subset, bestCost,
+                            planCache);
+                    if(plan != null) {
+                        bestCost = Math.min(bestCost, plan.cost);
+                        if(bestCost == plan.cost) {
+                            bestPlan = plan;
+                        }
+                    }
+                }
+
+                if(bestPlan.plan != null) {
+                    planCache.addPlan(subset, bestPlan.cost, bestPlan.card, bestPlan.plan);
+                }
+            }
+        }
+
+        return planCache.getOrder(wholeSet);
     }
 
     // ===================== Private Methods =================================
@@ -321,9 +363,9 @@ public class JoinOptimizer {
             LogicalJoinNode joinToRemove, Set<LogicalJoinNode> joinSet,
             double bestCostSoFar, PlanCache pc) throws ParsingException {
 
-        LogicalJoinNode j = joinToRemove;
+        LogicalJoinNode j = joinToRemove; // 选一个表移除来
 
-        List<LogicalJoinNode> prevBest;
+        List<LogicalJoinNode> prevBest; // 目前最佳join顺序
 
         if (this.p.getTableId(j.t1Alias) == null)
             throw new ParsingException("Unknown table " + j.t1Alias);
@@ -338,18 +380,19 @@ public class JoinOptimizer {
         String table2Alias = j.t2Alias;
 
         Set<LogicalJoinNode> news = new HashSet<>(joinSet);
-        news.remove(j);
+        news.remove(j); // 将驱动表移除来
 
         double t1cost, t2cost;
         int t1card, t2card;
         boolean leftPkey, rightPkey;
 
+        // 移除一个join后就为null了，说明joinSet中只有一个join
         if (news.isEmpty()) { // base case -- both are base relations
             prevBest = new ArrayList<>();
-            t1cost = stats.get(table1Name).estimateScanCost();
+            t1cost = stats.get(table1Name).estimateScanCost(); // 驱动表扫描开销
             t1card = stats.get(table1Name).estimateTableCardinality(
-                    filterSelectivities.get(j.t1Alias));
-            leftPkey = isPkey(j.t1Alias, j.f1PureName);
+                    filterSelectivities.get(j.t1Alias)); // 驱动表结果基数
+            leftPkey = isPkey(j.t1Alias, j.f1PureName); // 判断左键是否为主键
 
             t2cost = table2Alias == null ? 0 : stats.get(table2Name)
                     .estimateScanCost();
@@ -360,7 +403,8 @@ public class JoinOptimizer {
                     j.f2PureName);
         } else {
             // news is not empty -- figure best way to join j to news
-            prevBest = pc.getOrder(news);
+            // 不为空 说明joinSet中join >= 2
+            prevBest = pc.getOrder(news); // 从planCache中获取一个left-deep-tree 最佳plan
 
             // possible that we have not cached an answer, if subset
             // includes a cross product
@@ -372,32 +416,19 @@ public class JoinOptimizer {
             int bestCard = pc.getCard(news);
 
             // estimate cost of right subtree
-            if (doesJoin(prevBest, table1Alias)) { // j.t1 is in prevBest
-                t1cost = prevBestCost; // left side just has cost of whatever
-                                       // left
-                // subtree is
+            // doesJoin（List<LogicalJoinNode> joinlist, String table） : 当table在joinList中时，返回true
+            boolean leftInPreBest = doesJoin(prevBest, table1Alias);
+            boolean rightInPrevBest = doesJoin(prevBest, table2Alias);
+            if (leftInPreBest || rightInPrevBest) { // j.t1 is in prevBest  即t1在当prevBest中
+                t1cost = prevBestCost;
                 t1card = bestCard;
                 leftPkey = hasPkey(prevBest);
 
-                t2cost = j.t2Alias == null ? 0 : stats.get(table2Name)
-                        .estimateScanCost();
-                t2card = j.t2Alias == null ? 0 : stats.get(table2Name)
-                        .estimateTableCardinality(
-                                filterSelectivities.get(j.t2Alias));
-                rightPkey = j.t2Alias != null && isPkey(j.t2Alias,
-                        j.f2PureName);
-            } else if (doesJoin(prevBest, j.t2Alias)) { // j.t2 is in prevbest
-                                                        // (both
-                // shouldn't be)
-                t2cost = prevBestCost; // left side just has cost of whatever
-                                       // left
-                // subtree is
-                t2card = bestCard;
-                rightPkey = hasPkey(prevBest);
-                t1cost = stats.get(table1Name).estimateScanCost();
-                t1card = stats.get(table1Name).estimateTableCardinality(
-                        filterSelectivities.get(j.t1Alias));
-                leftPkey = isPkey(j.t1Alias, j.f1PureName);
+                t2cost = j.t2Alias == null ? 0 : stats.get(table2Name).estimateScanCost();
+                t2card = j.t2Alias == null ? 0 :
+                        stats.get(table2Name).estimateTableCardinality(filterSelectivities.get(j.t2Alias));
+
+                rightPkey = (j.t2Alias != null && isPkey(j.t2Alias, j.f2PureName));
 
             } else {
                 // don't consider this plan if one of j.t1 or j.t2
