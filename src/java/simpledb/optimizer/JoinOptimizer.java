@@ -108,14 +108,18 @@ public class JoinOptimizer {
      *            performed.
      * @param card1
      *            Estimated cardinality of the left-hand side of the query
+     *            查询左表的元素个数
      * @param card2
      *            Estimated cardinality of the right-hand side of the query
+     *             查询右表的元素个数
      * @param cost1
      *            Estimated cost of one full scan of the table on the left-hand
      *            side of the query
+     *            对左表进行一次全扫描需要的时间
      * @param cost2
      *            Estimated cost of one full scan of the table on the right-hand
      *            side of the query
+     *            对右表进行一次全扫描需要的时间
      * @return An estimate of the cost of this query, in terms of cost1 and
      *         cost2
      */
@@ -130,7 +134,15 @@ public class JoinOptimizer {
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
-            return -1.0;
+
+//            TupleDesc tupleDesc = p.getTupleDesc(j.t1Alias); // 通过第一个join表别名获取其TD属性
+//            int blockSize = Join.blockMemory / tupleDesc.getSize(); // 缓冲区元组个数 = 缓冲区大小 / 元组大小
+//            int fullNum = card1 / blockSize; // 缓冲次数 = 左表元组总数 / 缓冲区元组个数
+//            int left = (card1 - blockSize * fullNum) == 0 ? 0 : 1; // 查看是否有余数，不满一个缓冲区
+//            int blockCard = fullNum + left; // 得到左表被分为多少个缓冲区
+//            double cost = cost1 + blockCard * cost2 + card1 * card2; // 总代价 = 扫描左表 + 左表扫描右表 + 左右表join
+//            return cost;
+            return cost1 + card1 * cost2 + card1 * card2;
         }
     }
 
@@ -176,6 +188,35 @@ public class JoinOptimizer {
                                                    Map<String, Integer> tableAliasToId) {
         int card = 1;
         // some code goes here
+        int smallerSize = Math.min(card1, card2);
+        int biggerSize = Math.max(card1, card2);
+        switch (joinOp) {
+            case EQUALS:
+                if(t1pkey && t2pkey) {
+                    card = smallerSize;
+                } else if(t1pkey && !t2pkey) {
+                    card = card2;
+                } else if(!t1pkey && t2pkey) {
+                    card = card1;
+                } else if(!t1pkey && !t2pkey) {
+                    card = biggerSize;
+                }
+                break;
+
+            case GREATER_THAN:
+
+            case GREATER_THAN_OR_EQ:
+
+            case LESS_THAN:
+
+            case LESS_THAN_OR_EQ:
+                card = (int) (card1 * card2 * 0.3); // 范围扫描 输出结果和输入成正比，一般占笛卡尔乘积30%
+                break;
+
+            default:
+                card = card1 * card2; // 笛卡尔乘积
+        }
+
         return card <= 0 ? 1 : card;
     }
 
@@ -565,5 +606,7 @@ public class JoinOptimizer {
         f.pack();
 
     }
+
+
 
 }

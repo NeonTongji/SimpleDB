@@ -20,6 +20,7 @@ import simpledb.storage.StringField;
 import simpledb.storage.Tuple;
 import simpledb.storage.TupleDesc;
 import simpledb.transaction.Transaction;
+import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 public class Parser {
@@ -569,7 +570,7 @@ public class Parser {
             "group by", "max(", "min(", "avg(", "count", "rollback", "commit",
             "insert", "delete", "values", "into" };
 
-    public static void main(String[] argv) throws IOException {
+    public static void main(String[] argv) throws IOException, TransactionAbortedException, DbException {
 
         if (argv.length < 1 || argv.length > 4) {
             System.out.println("Invalid number of arguments.\n" + usage);
@@ -590,7 +591,7 @@ public class Parser {
 
     protected boolean interactive = true;
 
-    protected void start(String[] argv) throws IOException {
+    protected void start(String[] argv) throws IOException, TransactionAbortedException, DbException {
         // first add tables to database
         Database.getCatalog().loadSchema(argv[0]);
         TableStats.computeStatistics();

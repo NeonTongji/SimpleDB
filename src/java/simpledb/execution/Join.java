@@ -22,7 +22,7 @@ public class Join extends Operator {
     private TupleIterator joinResultsIter;
     private int numFields;
 
-    private int blockMemory = (1 << 19);
+    public static int blockMemory = (1 << 19);
 
 
     /** 131072 bytes （1 << 17）是BlockNestedLoopJoin算法中默认缓冲区大小
