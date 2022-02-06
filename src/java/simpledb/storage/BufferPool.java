@@ -156,6 +156,10 @@ public class BufferPool {
     public  void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
         // not necessary for lab1|lab2
+        // 成功了就释放了，没成功代表pid没被锁，或者tid没有锁这个pid
+        if(!lockManager.unlock(tid, pid)) {
+            throw new IllegalArgumentException();
+        }
     }
 
     /**
@@ -172,7 +176,7 @@ public class BufferPool {
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
-        return false;
+        return lockManager.getLockState(tid, p) != null;
     }
 
     /**
