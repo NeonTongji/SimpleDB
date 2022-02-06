@@ -2,6 +2,7 @@ package simpledb.storage;
 
 
 import simpledb.common.Database;
+import simpledb.common.LockManager;
 import simpledb.common.Permissions;
 import simpledb.common.DbException;
 
@@ -38,11 +39,15 @@ public class BufferPool {
     private HashMap<PageId, Page> pid2pages;
 
     private int PAGES_NUM;
+
+    private LockManager lockManager;
     
     /** Default number of pages passed to the constructor. This is used by
     other classes. BufferPool should use the numPages argument to the
     constructor instead. */
     public static final int DEFAULT_PAGES = 50;
+
+    private final long SLEEP_INTERVAL;
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -55,6 +60,8 @@ public class BufferPool {
         PAGES_NUM = numPages;
         pid2pages = new HashMap<>(numPages);
         LRUPagesPool = new MyLruCache<>(PAGES_NUM);
+        lockManager = new LockManager();
+        SLEEP_INTERVAL = 500; //睡眠时间太短会造成查询死锁频率过高
     }
     
     public static int getPageSize() {
@@ -87,20 +94,54 @@ public class BufferPool {
      * @param perm the requested permissions on the page
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
-        throws TransactionAbortedException, DbException {
+            throws TransactionAbortedException, DbException, InterruptedException {
         // some code goes here
         // 遍历buffer，查看哪个是空的
-        if(pid2pages.containsKey(pid)) return pid2pages.get(pid);
+//        if(pid2pages.containsKey(pid)) return pid2pages.get(pid);
+//
+//        if(pid2pages.size() == PAGES_NUM) {
+//            evictPage();
+//        }
+//
+//        // 从数据库\目录 创建数据表文件
+//        DbFile databaseFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+//        HeapPage page = (HeapPage) databaseFile.readPage(pid);
+//        pid2pages.put(pid,page);
+//        return page;
 
-        if(pid2pages.size() == PAGES_NUM) {
-            evictPage();
+        boolean lock = (perm == Permissions.READ_ONLY) ? lockManager.grantSLock(tid, pid)
+                : lockManager.grantXLock(tid, pid);
+
+        // 自旋等待资源，一直到申请到锁
+        while (!lock) {
+            if(lockManager.deadLockOccurred(tid, pid)) {
+                throw new TransactionAbortedException();
+            }
+            Thread.sleep(SLEEP_INTERVAL);
+
+            lock = (perm == Permissions.READ_ONLY) ? lockManager.grantSLock(tid, pid)
+                    : lockManager.grantXLock(tid, pid);
         }
-        // 从数据库\目录 创建数据表文件
-        DbFile databaseFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
-        HeapPage page = (HeapPage) databaseFile.readPage(pid);
-        pid2pages.put(pid,page);
-        return page;
 
+        HeapPage heapPage = (HeapPage) LRUPagesPool.get(pid);
+        if(heapPage != null) {
+            return  heapPage; // 直接根据pid命中要查询的page
+        }
+
+        // 未命中，应该访问磁盘并将其缓存下来
+        HeapFile table = (HeapFile) Database.getCatalog().getDatabaseFile(pid.getTableId());
+        HeapPage newPage = (HeapPage) table.readPage(pid);
+        Page removedPage = LRUPagesPool.put(pid, newPage);
+
+        // 将要移除的最老的page，flush到磁盘
+        if(removedPage != null) {
+            try {
+                flushPage(removedPage.getId());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return newPage;
     }
 
     /**
