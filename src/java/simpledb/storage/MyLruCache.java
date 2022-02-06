@@ -121,18 +121,19 @@ import java.util.NoSuchElementException;
 public class MyLruCache<K,V> {
 
     //存放当前缓存的条目
-    private HashMap<K,Node> cachedEntries;
+    protected HashMap<K,Node> cachedEntries;
 
     //允许缓存的最大条目数量
-    private int capacity;
+    protected int capacity;
 
     //头结点
-    private Node head;
+    protected Node head;
 
     //最后一个结点
-    private Node tail;
+    protected Node tail;
 
-    private class Node{
+
+    protected class Node{
         Node front;
         Node next;
         K key;
@@ -154,7 +155,7 @@ public class MyLruCache<K,V> {
      * 删除结点
      * @param ruNode the recently used Node
      */
-    private void unlink(Node ruNode) {
+    protected void unlink(Node ruNode) {
         //如果是最后一个结点
         if (ruNode.next == null) {
             ruNode.front.next = null;
@@ -168,7 +169,7 @@ public class MyLruCache<K,V> {
      * 把节点插入到表头作为第一个结点(在头结点之后)
      * @param ruNode  the recently used Node
      */
-    private void linkFirst(Node ruNode) {
+    protected void linkFirst(Node ruNode) {
         Node first= this.head.next;
         this.head.next=ruNode;
         ruNode.front= this.head;
@@ -184,7 +185,7 @@ public class MyLruCache<K,V> {
      * 删除链表的最后一个元素
      * @return  返回被删除的元素
      */
-    private K removeTail() {
+    protected K removeTail() {
         K element=tail.key;
         Node newTail = tail.front;
         tail.front=null;

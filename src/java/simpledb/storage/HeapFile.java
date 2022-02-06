@@ -149,7 +149,12 @@ public class HeapFile implements DbFile {
         List<Page> list = new ArrayList<>();
         for(int i = 0; i < numPage; i++) {
             HeapPageId pid = new HeapPageId(getId(), i); //获取当前页的pid
-            HeapPage heapPage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+            HeapPage heapPage = null;
+            try {
+                heapPage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
             if(heapPage.getNumEmptySlots() != 0) {
                 heapPage.insertTuple(t);
                 heapPage.markDirty(true, tid);
@@ -168,7 +173,12 @@ public class HeapFile implements DbFile {
             HeapPage blankPage = new HeapPage(heapPageId, HeapPage.createEmptyPageData());
             numPage++; // page要新增一页了
             writePage(blankPage);
-            HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, heapPageId, Permissions.READ_WRITE);
+            HeapPage page = null;
+            try {
+                page = (HeapPage) Database.getBufferPool().getPage(tid, heapPageId, Permissions.READ_WRITE);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
             page.insertTuple(t);
             page.markDirty(true, tid);
             list.add(page);
@@ -187,8 +197,12 @@ public class HeapFile implements DbFile {
         HeapPage hpage = null;
         for(int i = 0; i < numPages(); i++) {
             if(i == pid.getPageNumber()) {
-                 hpage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
-                 hpage.deleteTuple(t);
+                try {
+                    hpage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                hpage.deleteTuple(t);
                  list.add(hpage);
             }
         }
@@ -228,7 +242,12 @@ public class HeapFile implements DbFile {
         private Iterator<Tuple> getTuplesInPage(HeapPageId pid) throws TransactionAbortedException, DbException {
             // 要获得元组的迭代器，首先要获得元组所在的page
             // 不能使用HeapFile的readPage方法，要使用BufferPool来获得page，才能实现缓存功能；
-            HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY);
+            HeapPage page = null;
+            try {
+                page = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
             return page.iterator();
         }
 

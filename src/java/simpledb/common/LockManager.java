@@ -145,9 +145,13 @@ public class LockManager {
     }
 
 
-    public synchronized void releaseTransactionLocks(TransactionId tid, PageId pid) {
+    /**
+     * 释放tid所有的资源
+     * @param tid
+     */
+    public synchronized void releaseTransactionLocks(TransactionId tid) {
         List<PageId> toRelease = getAllLockedPagesById(tid);
-        for(PageId pageId : toRelease) {
+        for(PageId pid : toRelease) {
             unlock(tid, pid);
         }
     }

@@ -31,7 +31,7 @@ public class BufferPool {
 
     private static int pageSize = DEFAULT_PAGE_SIZE;
 
-    private MyLruCache<PageId, Page> LRUPagesPool;
+    private PageLruCache LRUPagesPool;
 
 
 //    private final Page[] buffer;
@@ -59,7 +59,7 @@ public class BufferPool {
 //        buffer = new Page[numPages];
         PAGES_NUM = numPages;
         pid2pages = new HashMap<>(numPages);
-        LRUPagesPool = new MyLruCache<>(PAGES_NUM);
+        LRUPagesPool = new PageLruCache(PAGES_NUM);
         lockManager = new LockManager();
         SLEEP_INTERVAL = 500; //睡眠时间太短会造成查询死锁频率过高
     }
@@ -153,7 +153,7 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param pid the ID of the page to unlock
      */
-    public  void unsafeReleasePage(TransactionId tid, PageId pid) {
+    public void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
         // not necessary for lab1|lab2
         // 成功了就释放了，没成功代表pid没被锁，或者tid没有锁这个pid
@@ -164,15 +164,20 @@ public class BufferPool {
 
     /**
      * Release all locks associated with a given transaction.
+     * 没有commit参数的默认为commit为真
      *
      * @param tid the ID of the transaction requesting the unlock
      */
-    public void transactionComplete(TransactionId tid) {
+    public void transactionComplete(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        transactionComplete(tid, true);
     }
 
-    /** Return true if the specified transaction has a lock on the specified page */
+    /** Return true if the specified transaction has a lock on the specified page
+     * 判断tid是否持有对p的锁
+     * */
+
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
@@ -186,9 +191,30 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
-    public void transactionComplete(TransactionId tid, boolean commit) {
+    public void transactionComplete(TransactionId tid, boolean commit) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        lockManager.releaseTransactionLocks(tid);
+        if(commit) {
+            flushPages(tid);
+        } else {
+            revertTransactionAction(tid);
+        }
+    }
+
+    /**
+     * 事务回滚之前，撤销其对page的改变
+     * @param tid
+     */
+    public void revertTransactionAction(TransactionId tid) {
+        Iterator<Page> iterator = LRUPagesPool.iterator();
+        while (iterator.hasNext()) {
+            Page p = iterator.next();
+            if(p.isDirty() != null && p.isDirty().equals(tid)) {
+                // 还没有提交，从磁盘中获得源数据，替换到lruPool中
+                LRUPagesPool.reCachePage(p.getId()); // 回滚事务，撤销其改变
+            }
+        }
     }
 
     /**
@@ -254,7 +280,10 @@ public class BufferPool {
         // not necessary for lab1
         Iterator<Page> it = LRUPagesPool.iterator();
         while (it.hasNext()) {
-            flushPage(it.next().getId());
+            Page p = it.next();
+            if(p.isDirty() != null) {
+                flushPage(p.getId());
+            }
         }
     }
 
@@ -276,27 +305,39 @@ public class BufferPool {
      * Flushes a certain page to disk
      * @param pid an ID indicating the page to flush
      */
-    private synchronized  void flushPage(PageId pid) throws IOException {
+    private synchronized void flushPage(PageId pid) throws IOException {
         HeapPage dirtyPage = (HeapPage) pid2pages.get(pid);
         HeapFile table = (HeapFile) Database.getCatalog().getDatabaseFile(pid.getTableId());
         table.writePage(dirtyPage);
         dirtyPage.markDirty(false,null);
     }
 
-
-
     /** Write all pages of the specified transaction to disk.
+     * 将tid相关的dirty pages全部刷新到磁盘
      */
-    public synchronized  void flushPages(TransactionId tid) throws IOException {
+
+    public synchronized void flushPages(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        Iterator<Page> iterator = LRUPagesPool.iterator();
+        while (iterator.hasNext()) {
+            Page page = iterator.next();
+            if(page.isDirty() != null && page.isDirty().equals(tid)) { // isDirty()返回使该page dirty的tid, 如果clean, 返回null
+                flushPage(page.getId());
+                if(page.isDirty() == null) {
+                    page.setBeforeImage();
+                }
+            }
+        }
 
     }
 
     /**
      * Discards a page from the buffer pool.
      * Flushes the page to disk to ensure dirty pages are updated on disk.
+     * 在LRU策略中已经实现
      */
+    @Deprecated
     private synchronized  void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
