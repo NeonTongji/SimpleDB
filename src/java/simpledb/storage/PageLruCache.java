@@ -85,8 +85,8 @@ public class PageLruCache extends MyLruCache<PageId, Page>{
 
         //访问磁盘获得该page
         HeapFile table = (HeapFile) Database.getCatalog().getDatabaseFile(pid.getTableId());
-        HeapPage origialPage = (HeapPage) table.readPage(pid);
-        Node node = new Node(pid, origialPage);
+        HeapPage origialPage = (HeapPage) table.readPage(pid); // 由于还没commit，瓷盘中的page还是clean的
+        Node node = new Node(pid, origialPage); // 建立新的节点，放到LRU缓存中，替换dirtyPage
         cachedEntries.put(pid, node);
         Node toRemove = head;
         while(!(toRemove = toRemove.next).key.equals(pid));

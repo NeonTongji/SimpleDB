@@ -3,6 +3,7 @@ package simpledb.index;
 import java.io.*;
 import java.util.*;
 
+import com.sun.tools.doclets.internal.toolkit.taglets.BaseInlineTaglet;
 import simpledb.common.Database;
 import simpledb.common.Permissions;
 import simpledb.execution.IndexPredicate;
@@ -180,7 +181,7 @@ public class BTreeFile implements DbFile {
 	 * @param dirtypages - the list of dirty pages which should be updated with all new dirty pages
 	 * @param pid - the current page being searched
 	 * @param perm - the permissions with which to lock the leaf page
-	 * @param f - the field to search for
+	 * @param f - the field to search for  //要查询的字段
 	 * @return the left-most leaf page possibly containing the key field f
 	 * 
 	 */
@@ -188,7 +189,40 @@ public class BTreeFile implements DbFile {
                                        Field f)
 					throws DbException, TransactionAbortedException {
 		// some code goes here
-        return null;
+		switch (pid.pgcateg()){
+
+			case BTreePageId.LEAF: //叶子节点，直接获取
+				return (BTreeLeafPage) getPage(tid, dirtypages, pid, perm);
+
+			case BTreePageId.INTERNAL: // 索引节点
+				BTreeInternalPage internalPage = (BTreeInternalPage) getPage(tid, dirtypages, pid, perm);
+				Iterator<BTreeEntry> iterator = internalPage.iterator();
+				if(iterator == null || !iterator.hasNext()) {
+					throw new DbException("没有索引节点入口");
+				}
+				// 如果f为null，则找到最左叶子节点
+				if(f == null) {
+					return findLeafPage(tid, dirtypages, iterator.next().getLeftChild(), perm, f);
+				}
+
+				BTreeEntry entry = null;
+				while (iterator.hasNext()) {
+					entry = iterator.next();
+					if(entry.getKey().compare(Op.GREATER_THAN_OR_EQ, f))  { //如果字段比要查找的f大
+						return findLeafPage(tid, dirtypages, entry.getLeftChild(), perm, f);
+					}
+				}
+				// 到左边一直没找到，开始找右边
+				return findLeafPage(tid, dirtypages, entry.getRightChild(), perm, f);
+
+			case BTreePageId.HEADER:
+
+			case BTreePageId.ROOT_PTR:
+
+			default:
+				throw new DbException("not valid page");
+
+		}
 	}
 	
 	/**
@@ -402,16 +436,16 @@ public class BTreeFile implements DbFile {
 	Page getPage(TransactionId tid, Map<PageId, Page> dirtypages, BTreePageId pid, Permissions perm)
 			throws DbException, TransactionAbortedException {
 		if(dirtypages.containsKey(pid)) {
-			return dirtypages.get(pid);
+			return dirtypages.get(pid); //如果dirtypages缓存中存在，则返回
 		}
 		else {
 			Page p = null;
 			try {
-				p = Database.getBufferPool().getPage(tid, pid, perm);
+				p = Database.getBufferPool().getPage(tid, pid, perm); // 否则从bufferpool中获取
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			}
-			if(perm == Permissions.READ_WRITE) {
+			if(perm == Permissions.READ_WRITE) { // 如果发现page的权限为读+写， 则放到dirtypages缓存
 				dirtypages.put(pid, p);
 			}
 			return p;

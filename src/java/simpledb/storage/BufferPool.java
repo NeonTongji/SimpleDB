@@ -177,7 +177,6 @@ public class BufferPool {
     /** Return true if the specified transaction has a lock on the specified page
      * 判断tid是否持有对p的锁
      * */
-
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
